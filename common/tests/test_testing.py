@@ -3,12 +3,10 @@ from __future__ import annotations
 
 import asyncio
 
-import aiohttp
 from aiohttp_socks import ProxyError
 
 from ip_pool_common.models import build_proxy_url
 from ip_pool_common.testing import (
-    PROBE_TARGET,
     _is_legal_proxy_reply,
     batch_test,
     proxy_reachability_test,
@@ -19,32 +17,40 @@ HTTP_PROXY = "http://1.2.3.4:8080"
 SITE_URL = "https://example.com/"
 
 
-async def test_http_proxy_ok(mock_session):
-    session, m = mock_session
-    m.get(PROBE_TARGET, status=200, body=b"ok")
-    ok, latency = await proxy_reachability_test(HTTP_PROXY, session=session)
+async def test_http_proxy_ok(http_proxy_server):
+    url = await http_proxy_server("ok")
+    ok, latency = await proxy_reachability_test(url)
     assert ok is True
     assert latency >= 0
 
 
-async def test_http_proxy_407_still_ok(aio_mock):
-    m = aio_mock
-    m.get(PROBE_TARGET, status=407, body=b"auth required")
-    ok, _ = await proxy_reachability_test(HTTP_PROXY)
+async def test_http_proxy_407_still_ok(http_proxy_server):
+    url = await http_proxy_server("auth")
+    ok, _ = await proxy_reachability_test(url)
     assert ok is True
 
 
-async def test_http_proxy_connection_refused(aio_mock):
-    m = aio_mock
-    m.get(PROBE_TARGET, exception=ConnectionError("connection refused"))
-    ok, _ = await proxy_reachability_test(HTTP_PROXY)
+async def test_http_proxy_502_legal_reply(http_proxy_server):
+    url = await http_proxy_server("refuse")
+    ok, _ = await proxy_reachability_test(url)
+    assert ok is True
+
+
+async def test_http_proxy_connection_refused(http_proxy_server):
+    url = await http_proxy_server("refused")
+    ok, _ = await proxy_reachability_test(url)
     assert ok is False
 
 
-async def test_http_proxy_timeout_no_hang(aio_mock):
-    m = aio_mock
-    m.get(PROBE_TARGET, exception=asyncio.TimeoutError())
-    ok, _ = await proxy_reachability_test(HTTP_PROXY, timeout=0.5)
+async def test_http_proxy_timeout_no_hang(http_proxy_server):
+    url = await http_proxy_server("timeout")
+    ok, _ = await proxy_reachability_test(url, timeout=0.5)
+    assert ok is False
+
+
+async def test_http_proxy_reset_no_reply(http_proxy_server):
+    url = await http_proxy_server("reset")
+    ok, _ = await proxy_reachability_test(url, timeout=2.0)
     assert ok is False
 
 

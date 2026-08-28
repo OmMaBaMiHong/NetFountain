@@ -13,6 +13,14 @@ from typing import Any
 
 import aiohttp
 from aiohttp_socks import ProxyConnector, ProxyError
+from python_socks import (
+    ProxyConnectionError,
+    ProxyError as PySocksProxyError,
+    ProxyTimeoutError,
+    ProxyType,
+    parse_proxy_url,
+)
+from python_socks.async_.asyncio.v2 import Proxy
 from python_socks._protocols.errors import ReplyError
 
 #: 可达性探测的占位目标。仅在真实环境下由代理尝试解析/连接（CONNECT 目标），
@@ -45,46 +53,61 @@ async def proxy_reachability_test(
 ) -> tuple[bool, float]:
     """只验证能否与代理建立代理协议会话，不做任何出口验证。
 
-    - http/https：通过 aiohttp_socks ``ProxyConnector`` 向占位目标发起请求，
-      收到任意合法 HTTP 代理响应（200/4xx/5xx，含 407 鉴权）即判 ok=True。
-    - socks4/socks5：通过 ``ProxyConnector.from_url`` 完成 SOCKS 握手
-      （greeting + CONNECT 请求），握手成功即判 ok=True；拒绝/超时/连接失败
-      判 ok=False。
+    通过 python_socks 直接完成「纯握手」（不发内层请求，零出口流量）：
+    - http/https：向代理发送 ``CONNECT`` 并读取应答。收到 2xx（隧道建立）
+      即判可达；收到 4xx/5xx（合法代理应答，含 407 鉴权）也判可达；
+      连接拒绝 / 超时 / 无应答判不可达。
+    - socks4/socks5：完成 greeting + CONNECT 握手；握手成功（REP=0x00）
+      即判可达；拒绝 / 超时 / 连接失败判不可达。
 
-    返回 ``(ok, latency_ms)``。``session`` 可选，传 None 时内部自建并关闭。
+    关键点：只做握手、**绝不发送内层请求**（不测出口）。这使 lazy-CONNECT
+    类代理（对任何 CONNECT 立即回 200、随后自行解析上游目标）也能被正确
+    判定为可达——此类代理对不可解析目标会关闭隧道，若像旧实现那样在握手后
+    再发内层请求，会产生对可用代理的误判。
+
+    返回 ``(ok, latency_ms)``。``session`` 参数仅保留以兼容旧签名，本实现
+    不再使用（握手直接经 python_socks 完成）。
     """
     start = time.perf_counter()
-    connector: ProxyConnector | None = None
-    own_session = False
-    if session is None:
-        try:
-            connector = ProxyConnector.from_url(proxy_url)
-        except ValueError:
-            return False, 0.0
-        session = aiohttp.ClientSession(connector=connector)
-        own_session = True
+    try:
+        proxy_type, host, port, username, password = parse_proxy_url(proxy_url)
+    except (ValueError, TypeError):
+        return False, 0.0
+    proxy = Proxy(
+        proxy_type=proxy_type,
+        host=host,
+        port=port,
+        username=username,
+        password=password,
+        rdns=True,
+    )
+    stream = None
     try:
         try:
-            async with session.get(
-                PROBE_TARGET, timeout=_client_timeout(timeout)
-            ) as resp:
-                _ = resp.status
-                ok = True
-        except ProxyError as exc:
+            stream = await proxy.connect(
+                dest_host=PROBE_HOST,
+                dest_port=PROBE_PORT,
+                timeout=timeout,
+            )
+            ok = True
+        except PySocksProxyError as exc:
             ok = _is_legal_proxy_reply(exc)
         except (
-            aiohttp.ClientError,
+            ProxyConnectionError,
+            ProxyTimeoutError,
             asyncio.TimeoutError,
             TimeoutError,
             OSError,
-            ReplyError,
         ):
             ok = False
+    except asyncio.CancelledError:
+        raise
     finally:
-        if own_session:
-            await session.close()
-        if connector is not None:
-            await connector.close()
+        if stream is not None:
+            try:
+                await stream.close()
+            except Exception:
+                pass
     return ok, (time.perf_counter() - start) * 1000.0
 
 

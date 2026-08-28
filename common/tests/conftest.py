@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import asyncio
+import socket
 from collections.abc import Callable
 from unittest import mock
 
@@ -131,6 +132,68 @@ async def socks_server():
         servers.append(srv)
         port = srv.sockets[0].getsockname()[1]
         return f"{version}://127.0.0.1:{port}"
+
+    yield _factory
+
+    for srv in servers:
+        srv.close()
+        await srv.wait_closed()
+
+
+# ---------------------------------------------------------------------------
+# 本地 HTTP CONNECT 代理桩服务器
+# ---------------------------------------------------------------------------
+
+
+async def _handle_http_proxy(reader, writer, mode: str) -> None:
+    try:
+        _ = await asyncio.wait_for(reader.read(4096), 2)  # 读 CONNECT 请求
+        if mode == "timeout":
+            await asyncio.sleep(3)
+            return
+        if mode == "reset":
+            return
+        if mode == "ok":
+            reply = b"HTTP/1.1 200 Connection established\r\n\r\n"
+        elif mode == "auth":
+            reply = b"HTTP/1.1 407 Proxy Authentication Required\r\n\r\n"
+        elif mode == "refuse":
+            reply = b"HTTP/1.1 502 Bad Gateway\r\n\r\n"
+        else:
+            reply = b"HTTP/1.1 500 Internal Server Error\r\n\r\n"
+        writer.write(reply)
+        await writer.drain()
+        await asyncio.sleep(0.1)
+    except (asyncio.TimeoutError, ConnectionError, OSError):
+        pass
+    finally:
+        writer.close()
+
+
+@pytest.fixture
+async def http_proxy_server():
+    """本地 HTTP CONNECT 代理桩服务器。
+
+    mode ∈ ok(200)/auth(407)/refuse(502)/timeout(不应答)/reset(直接断)/refused(未监听端口)。
+    返回 async 工厂函数 ``(mode) -> proxy_url``。
+    """
+    servers: list[asyncio.AbstractServer] = []
+
+    async def _factory(mode: str = "ok") -> str:
+        if mode == "refused":
+            probe = socket.socket()
+            probe.bind(("127.0.0.1", 0))
+            port = probe.getsockname()[1]
+            probe.close()
+            return f"http://127.0.0.1:{port}"
+
+        async def _handler(reader, writer):
+            await _handle_http_proxy(reader, writer, mode)
+
+        srv = await asyncio.start_server(_handler, "127.0.0.1", 0)
+        servers.append(srv)
+        port = srv.sockets[0].getsockname()[1]
+        return f"http://127.0.0.1:{port}"
 
     yield _factory
 
