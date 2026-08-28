@@ -1,0 +1,81 @@
+"""HTTP API 路由：status / count / ips / ips-after-id。
+
+统一响应 ``{code, msg, data}``（ip_pool_common.api.ok）。
+"""
+from __future__ import annotations
+
+import time
+
+from fastapi import APIRouter, Request
+
+from ip_pool_common.api import ok
+from ip_pool_common.models import IpRecord
+
+router = APIRouter(prefix="/api/v1", tags=["level1"])
+
+
+def _record_to_dict(rec: IpRecord) -> dict:
+    return {
+        "id": rec.id,
+        "ip": rec.ip,
+        "port": rec.port,
+        "protocol": rec.protocol.value,
+        "proxy_url": rec.proxy_url,
+        "region": rec.region,
+        "ttl": rec.ttl,
+        "created_at": rec.created_at,
+    }
+
+
+def _records_to_list(records: list[IpRecord]) -> list[dict]:
+    return [_record_to_dict(r) for r in records]
+
+
+@router.get("/status")
+async def status(request: Request):
+    pool = request.app.state.pool
+    counts = pool.counts()
+    return ok(
+        {
+            "uptime": round(time.time() - request.app.state.start_time, 3),
+            "total_pulled": request.app.state.stats.total_pulled,
+            "total_entered": request.app.state.stats.total_entered,
+            "pool_size": counts.total,
+            "counts": {
+                "http": counts.http,
+                "https": counts.https,
+                "socks4": counts.socks4,
+                "socks5": counts.socks5,
+            },
+            "api_call_count": getattr(request.app.state, "api_call_count", 0),
+            "next_id": pool.next_id,
+        }
+    )
+
+
+@router.get("/count")
+async def count(request: Request):
+    counts = request.app.state.pool.counts()
+    return ok(
+        {
+            "pool_size": counts.total,
+            "counts": {
+                "http": counts.http,
+                "https": counts.https,
+                "socks4": counts.socks4,
+                "socks5": counts.socks5,
+            },
+        }
+    )
+
+
+@router.get("/ips")
+async def ips(request: Request):
+    records = await request.app.state.pool.all()
+    return ok(_records_to_list(records))
+
+
+@router.get("/ips/after/{id_}")
+async def ips_after(id_: int, request: Request):
+    records = await request.app.state.pool.after(id_)
+    return ok(_records_to_list(records))

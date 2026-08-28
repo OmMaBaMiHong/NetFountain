@@ -1,0 +1,218 @@
+"""provider.py 测试：工厂选择 / 未知类型 / 响应解析 / 异常容错 / close。"""
+from __future__ import annotations
+
+import asyncio
+from unittest import mock
+
+import aiohttp
+import pytest
+
+from app.provider import (
+    BaseProvider,
+    DefaultHttpProvider,
+    ProviderFactory,
+    register,
+)
+from ip_pool_common.models import Protocol
+
+
+@register("custom_probe")
+class ProbeProvider(BaseProvider):
+    async def pull(self, count: int):
+        return []
+
+
+async def test_factory_selects_subclass_by_type(mock_session, provider_cfg):
+    session, _ = mock_session
+    prov = ProviderFactory.create("default_http", provider_cfg, session)
+    assert isinstance(prov, DefaultHttpProvider)
+    assert prov.name == "default_http"
+
+
+async def test_factory_unknown_type_raises(mock_session, provider_cfg):
+    session, _ = mock_session
+    with pytest.raises(ValueError, match="unknown provider type"):
+        ProviderFactory.create("definitely_not_registered", provider_cfg, session)
+
+
+async def test_factory_register_and_create_custom(provider_cfg):
+    assert ProbeProvider.name == "custom_probe"
+    prov = ProviderFactory.create(
+        "custom_probe", provider_cfg, mock.MagicMock()
+    )
+    assert isinstance(prov, ProbeProvider)
+    assert ProviderFactory._registry["custom_probe"] is ProbeProvider
+
+
+async def test_factory_available_types_in_error(mock_session, provider_cfg):
+    session, _ = mock_session
+    with pytest.raises(ValueError) as exc_info:
+        ProviderFactory.create("nope", provider_cfg, session)
+    assert "default_http" in str(exc_info.value)
+    assert "custom_probe" in str(exc_info.value)
+
+
+def test_base_provider_is_abstract(provider_cfg):
+    with pytest.raises(TypeError):
+        BaseProvider(provider_cfg, mock.MagicMock())
+
+
+async def test_pull_parses_standard_response(provider_cfg, provider_request_url, mock_session):
+    session, m = mock_session
+    m.get(
+        provider_request_url(),
+        status=200,
+        payload={
+            "data": [
+                {"ip": "1.2.3.4", "port": 8080, "protocol": "http", "region": "CN", "ttl": 120},
+                {"ip": "1.2.3.5", "port": 8081},
+                {"ip": "1.2.3.6", "port": "8082", "protocol": "https", "region": "", "ttl": "60"},
+            ]
+        },
+    )
+    provider = DefaultHttpProvider(provider_cfg, session)
+    ips = await provider.pull(10)
+    assert len(ips) == 3
+    assert ips[0].ip == "1.2.3.4"
+    assert ips[0].port == 8080
+    assert ips[0].protocol == Protocol.HTTP
+    assert ips[0].region == "CN"
+    assert ips[0].ttl == 120.0
+    assert ips[1].protocol == Protocol.HTTP
+    assert ips[1].region is None
+    assert ips[1].ttl is None
+    assert ips[2].protocol == Protocol.HTTPS
+    assert ips[2].port == 8082
+    assert ips[2].region is None
+    assert ips[2].ttl == 60.0
+
+
+async def test_pull_invalid_protocol_defaults_http(provider_cfg, provider_request_url, mock_session):
+    session, m = mock_session
+    m.get(
+        provider_request_url(),
+        status=200,
+        payload={"data": [{"ip": "9.9.9.9", "port": 1, "protocol": "weird"}]},
+    )
+    provider = DefaultHttpProvider(provider_cfg, session)
+    ips = await provider.pull(10)
+    assert len(ips) == 1
+    assert ips[0].protocol == Protocol.HTTP
+
+
+async def test_pull_invalid_ttl_coerces_none(provider_cfg, provider_request_url, mock_session):
+    session, m = mock_session
+    m.get(
+        provider_request_url(),
+        status=200,
+        payload={"data": [{"ip": "1.2.3.4", "port": 8080, "ttl": "abc"}]},
+    )
+    provider = DefaultHttpProvider(provider_cfg, session)
+    ips = await provider.pull(10)
+    assert len(ips) == 1
+    assert ips[0].ttl is None
+
+
+async def test_pull_empty_data_returns_empty(provider_cfg, provider_request_url, mock_session):
+    session, m = mock_session
+    m.get(provider_request_url(), status=200, payload={"data": []})
+    provider = DefaultHttpProvider(provider_cfg, session)
+    assert await provider.pull(10) == []
+
+
+async def test_pull_missing_data_key_returns_empty(provider_cfg, provider_request_url, mock_session):
+    session, m = mock_session
+    m.get(provider_request_url(), status=200, payload={"foo": "bar"})
+    provider = DefaultHttpProvider(provider_cfg, session)
+    assert await provider.pull(10) == []
+
+
+async def test_pull_non_object_payload_returns_empty(provider_cfg, provider_request_url, mock_session):
+    session, m = mock_session
+    m.get(provider_request_url(), status=200, body="[]", content_type="application/json")
+    provider = DefaultHttpProvider(provider_cfg, session)
+    assert await provider.pull(10) == []
+
+
+async def test_pull_skips_malformed_items(provider_cfg, provider_request_url, mock_session):
+    session, m = mock_session
+    m.get(
+        provider_request_url(),
+        status=200,
+        payload={
+            "data": [
+                42,
+                {"ip": "1.2.3.4"},
+                {"ip": "", "port": 80},
+                {"port": 8080},
+                {"ip": "1.2.3.5", "port": "not-a-port"},
+                {"ip": "   ", "port": 1},
+            ]
+        },
+    )
+    provider = DefaultHttpProvider(provider_cfg, session)
+    assert await provider.pull(10) == []
+
+
+async def test_pull_respects_count_limit(provider_cfg, provider_request_url, mock_session):
+    session, m = mock_session
+    data = [{"ip": f"1.1.1.{i}", "port": 8000 + i} for i in range(1, 16)]
+    m.get(provider_request_url(count=5), status=200, payload={"data": data})
+    provider = DefaultHttpProvider(provider_cfg, session)
+    ips = await provider.pull(5)
+    assert len(ips) == 5
+
+
+async def test_pull_sends_api_key_query_param(provider_cfg, provider_request_url, mock_session):
+    session, m = mock_session
+    m.get(
+        provider_request_url(api_key=provider_cfg.api_key),
+        status=200,
+        payload={"data": [{"ip": "1.2.3.4", "port": 80}]},
+    )
+    provider = DefaultHttpProvider(provider_cfg, session)
+    ips = await provider.pull(10)
+    assert len(ips) == 1
+
+
+async def test_pull_no_api_key_omits_param(provider_cfg, provider_request_url, mock_session):
+    provider_cfg.api_key = ""
+    session, m = mock_session
+    m.get(provider_request_url(api_key=""), status=200, payload={"data": []})
+    provider = DefaultHttpProvider(provider_cfg, session)
+    assert await provider.pull(10) == []
+
+
+async def test_pull_500_returns_empty(provider_cfg, provider_request_url, mock_session):
+    session, m = mock_session
+    m.get(provider_request_url(), status=500, body=b"boom")
+    provider = DefaultHttpProvider(provider_cfg, session)
+    assert await provider.pull(10) == []
+
+
+async def test_pull_timeout_returns_empty(provider_cfg, provider_request_url, mock_session):
+    session, m = mock_session
+    m.get(provider_request_url(), exception=asyncio.TimeoutError())
+    provider = DefaultHttpProvider(provider_cfg, session)
+    assert await provider.pull(10) == []
+
+
+async def test_pull_connection_error_returns_empty(provider_cfg, provider_request_url, mock_session):
+    session, m = mock_session
+    m.get(provider_request_url(), exception=aiohttp.ClientConnectionError("refused"))
+    provider = DefaultHttpProvider(provider_cfg, session)
+    assert await provider.pull(10) == []
+
+
+async def test_pull_invalid_json_returns_empty(provider_cfg, provider_request_url, mock_session):
+    session, m = mock_session
+    m.get(provider_request_url(), status=200, body="not json{", content_type="application/json")
+    provider = DefaultHttpProvider(provider_cfg, session)
+    assert await provider.pull(10) == []
+
+
+async def test_close_idempotent(mock_session, provider_cfg):
+    session, _ = mock_session
+    provider = DefaultHttpProvider(provider_cfg, session)
+    await provider.close()
+    await provider.close()
