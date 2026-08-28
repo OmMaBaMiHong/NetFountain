@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ip_pool_common"
+version = "0.1.0"
+description = "Shared library for the NetFountain two-level proxy IP pool system"
+requires-python = ">=3.11"
+dependencies = [
+    "aiohttp",
+    "aiohttp-socks",
+    "pydantic",
+    "pydantic-settings",
+    "pyyaml",
+]
+
+[tool.setuptools]
+packages = ["ip_pool_common"]

@@ -1,0 +1,7 @@
+fastapi
+uvicorn[standard]
+aiohttp
+aiohttp-socks
+pydantic-settings
+pyyaml
+-e ../common
