@@ -20,6 +20,8 @@ class ProviderConfig(BaseModel):
     type: str = "default_http"
     api_url: str = ""
     api_key: str = ""
+    trade_no: str = ""
+    protocol: int = 1
     pull_count: int = 10
     pull_interval: float = 1.0
     pull_timeout: float = 5.0

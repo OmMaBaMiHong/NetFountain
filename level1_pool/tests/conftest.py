@@ -84,6 +84,50 @@ def settings(provider_cfg):
 
 
 # ---------------------------------------------------------------------------
+# 91HTTP 供应商桩：URL / 配置 / 请求 URL 构造
+# ---------------------------------------------------------------------------
+HTTP91_API_URL = "http://api.91http.com/v1/get-ip"
+HTTP91_TRADE_NO = "A161832894358"
+HTTP91_SECRET = "TkZQYrTD9iI1FfDE"
+
+
+@pytest.fixture
+def http91_cfg():
+    """指向 91HTTP 打桩 URL 的供应商配置。"""
+    return ProviderConfig(
+        type="http91",
+        api_url=HTTP91_API_URL,
+        api_key=HTTP91_SECRET,
+        trade_no=HTTP91_TRADE_NO,
+        protocol=1,
+        pull_count=10,
+        pull_interval=1.0,
+        pull_timeout=5.0,
+        supports_ttl=True,
+    )
+
+
+@pytest.fixture
+def http91_request_url():
+    """构造 91HTTP 实际请求 URL（含 query 参数），供 aioresponses 打桩精确匹配。"""
+
+    def _make(
+        count: int = 10,
+        trade_no: str = HTTP91_TRADE_NO,
+        secret: str = HTTP91_SECRET,
+        protocol: int = 1,
+        api_url: str = HTTP91_API_URL,
+    ) -> str:
+        qs = (
+            f"trade_no={trade_no}&secret={secret}&num={count}"
+            f"&format=json&time=1&protocol={protocol}"
+        )
+        return f"{api_url}?{qs}"
+
+    return _make
+
+
+# ---------------------------------------------------------------------------
 # 网络桩
 # ---------------------------------------------------------------------------
 

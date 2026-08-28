@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime
 from unittest import mock
 
 import aiohttp
@@ -10,6 +11,7 @@ import pytest
 from app.provider import (
     BaseProvider,
     DefaultHttpProvider,
+    Http91Provider,
     ProviderFactory,
     register,
 )
@@ -216,3 +218,150 @@ async def test_close_idempotent(mock_session, provider_cfg):
     provider = DefaultHttpProvider(provider_cfg, session)
     await provider.close()
     await provider.close()
+
+
+# ---------------------------------------------------------------------------
+# Http91Provider
+# ---------------------------------------------------------------------------
+
+
+def _http91_payload(items: list[dict], code: int = 0, msg: str = "OK") -> dict:
+    return {
+        "code": code,
+        "msg": msg,
+        "data": {
+            "count": len(items),
+            "filter_count": 0,
+            "surplus_quantity": 0,
+            "proxy_list": items,
+        },
+    }
+
+
+async def test_factory_creates_http91(mock_session, http91_cfg):
+    session, _ = mock_session
+    prov = ProviderFactory.create("http91", http91_cfg, session)
+    assert isinstance(prov, Http91Provider)
+    assert prov.name == "http91"
+
+
+async def test_http91_pull_parses_expire_time_to_ttl(
+    mock_session, http91_cfg, http91_request_url
+):
+    session, m = mock_session
+    m.get(
+        http91_request_url(),
+        status=200,
+        payload=_http91_payload(
+            [
+                {"ip": "183.167.165.238", "port": 38587, "expire_time": "2026-08-28 17:03:06"},
+                {"ip": "49.71.41.98", "port": 46019, "expire_time": "2026-08-28 17:02:56"},
+            ]
+        ),
+    )
+    provider = Http91Provider(http91_cfg, session)
+    ips = await provider.pull(10)
+    assert len(ips) == 2
+    assert ips[0].ip == "183.167.165.238"
+    assert ips[0].port == 38587
+    assert ips[0].protocol == Protocol.HTTP
+    assert ips[1].ttl is not None
+
+
+def test_http91_parse_ttl_remaining_seconds(http91_cfg):
+    provider = Http91Provider(http91_cfg, mock.MagicMock())
+    now = datetime.strptime("2026-08-28 17:00:00", "%Y-%m-%d %H:%M:%S").timestamp()
+    ips = provider._parse(
+        _http91_payload(
+            [{"ip": "1.2.3.4", "port": 8080, "expire_time": "2026-08-28 17:03:06"}]
+        ),
+        10,
+        now=now,
+    )
+    assert len(ips) == 1
+    assert ips[0].ttl == 186.0
+
+
+def test_http91_parse_code_nonzero_returns_empty(http91_cfg):
+    provider = Http91Provider(http91_cfg, mock.MagicMock())
+    payload = {"code": 104, "msg": "未检索到满足要求的代理IP", "data": None}
+    assert provider._parse(payload, 10) == []
+
+
+def test_http91_parse_respects_count_limit(http91_cfg):
+    provider = Http91Provider(http91_cfg, mock.MagicMock())
+    items = [{"ip": f"1.1.1.{i}", "port": 8000 + i} for i in range(1, 16)]
+    ips = provider._parse(_http91_payload(items), 5)
+    assert len(ips) == 5
+
+
+def test_http91_parse_missing_expire_time_ttl_none(http91_cfg):
+    provider = Http91Provider(http91_cfg, mock.MagicMock())
+    ips = provider._parse(
+        _http91_payload([{"ip": "1.2.3.4", "port": 8080}]),
+        10,
+    )
+    assert len(ips) == 1
+    assert ips[0].ttl is None
+
+
+def test_http91_parse_invalid_expire_time_ttl_none(http91_cfg):
+    provider = Http91Provider(http91_cfg, mock.MagicMock())
+    ips = provider._parse(
+        _http91_payload(
+            [{"ip": "1.2.3.4", "port": 8080, "expire_time": "not-a-time"}]
+        ),
+        10,
+    )
+    assert len(ips) == 1
+    assert ips[0].ttl is None
+
+
+def test_http91_parse_skips_malformed_items(http91_cfg):
+    provider = Http91Provider(http91_cfg, mock.MagicMock())
+    ips = provider._parse(
+        _http91_payload(
+            [
+                {"ip": "1.2.3.4"},
+                {"port": 8080},
+                {"ip": "   ", "port": 1},
+                {"ip": "1.2.3.5", "port": "not-a-port"},
+            ]
+        ),
+        10,
+    )
+    assert ips == []
+
+
+def test_http91_protocol_socks(http91_cfg):
+    http91_cfg.protocol = 2
+    provider = Http91Provider(http91_cfg, mock.MagicMock())
+    ips = provider._parse(
+        _http91_payload([{"ip": "1.2.3.4", "port": 8080}]),
+        10,
+    )
+    assert len(ips) == 1
+    assert ips[0].protocol == Protocol.SOCKS5
+
+
+async def test_http91_pull_500_returns_empty(mock_session, http91_cfg, http91_request_url):
+    session, m = mock_session
+    m.get(http91_request_url(), status=500, body=b"boom")
+    provider = Http91Provider(http91_cfg, session)
+    assert await provider.pull(10) == []
+
+
+async def test_http91_pull_timeout_returns_empty(mock_session, http91_cfg, http91_request_url):
+    session, m = mock_session
+    m.get(http91_request_url(), exception=asyncio.TimeoutError())
+    provider = Http91Provider(http91_cfg, session)
+    assert await provider.pull(10) == []
+
+
+async def test_http91_pull_connection_error_returns_empty(
+    mock_session, http91_cfg, http91_request_url
+):
+    session, m = mock_session
+    m.get(http91_request_url(), exception=aiohttp.ClientConnectionError("refused"))
+    provider = Http91Provider(http91_cfg, session)
+    assert await provider.pull(10) == []
