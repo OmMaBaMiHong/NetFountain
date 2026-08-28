@@ -6,3 +6,7 @@ __pycache__/
 .pytest_cache/
 .coverage
 *.egg-info/
+e2e/logs/
+e2e/.pytest_cache/
+# e2e 编排器运行期写入的 level2 配置产物
+level2_pool/config/level2_pool.yaml

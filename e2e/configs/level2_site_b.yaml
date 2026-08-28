@@ -1,0 +1,23 @@
+service:
+  host: 0.0.0.0
+  port: 8002
+  log_level: INFO
+
+site:
+  name: gongshang
+  target_url: https://gongshang.mingluji.com/
+
+level1:
+  base_url: http://127.0.0.1:8000
+
+sync:
+  interval: 3.0
+  timeout: 5.0
+
+test:
+  latency_threshold_ms: 2000
+  connect_timeout: 3.0
+  concurrency: 20
+
+revalidate_interval: 60.0
+ttl_sweep_interval: 5.0
