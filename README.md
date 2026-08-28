@@ -61,6 +61,16 @@ uvicorn app.main:app --app-dir proxy --host 0.0.0.0 --port 9000
 
 ## 文档索引
 
+### 使用说明
+
+| 文档 | 内容 | 适用对象 |
+|---|---|---|
+| `USAGE.md` | 使用说明：代理层网关对外 API，从池中获取 / 释放 / 删除 IP 的完整流程 | 使用方（用户 / 调用方） |
+| `API_USAGE.md` | API 使用说明：三个服务全部 HTTP API（字段、参数、示例、错误码） | 开发者 / 运维 |
+| `DEPLOYMENT.md` | 部署使用说明：环境准备、依赖安装、配置、启动、验证、运维排障 | 部署 / 运维 |
+
+### 项目文档
+
 - 公共库：`common/README.md`、`common/测试计划书.md`
 - 一级池：`level1_pool/项目策划书.md`、`level1_pool/测试计划书.md`
 - 二级池：`level2_pool/项目策划书.md`、`level2_pool/测试计划书.md`
