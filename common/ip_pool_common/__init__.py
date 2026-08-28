@@ -1,1 +1,42 @@
-# 空包占位：模块文件留待后续阶段。
+"""ip_pool_common：两级代理 IP 池系统的公共基础库。
+
+被 level1_pool / level2_pool / proxy 三个独立项目依赖，
+仅收纳稳定、通用、与业务无关的代码。
+"""
+from __future__ import annotations
+
+from .api import ApiCounterMiddleware, ErrorCode, err, ok, run_app
+from .config import load_settings, load_yaml
+from .logging_setup import setup_logging
+from .models import (
+    IpRecord,
+    Level2Record,
+    Protocol,
+    ProviderIp,
+    build_proxy_url,
+)
+from .testing import PROBE_HOST, PROBE_PORT, PROBE_TARGET, batch_test, proxy_reachability_test, site_test
+
+__all__ = [
+    "ApiCounterMiddleware",
+    "ErrorCode",
+    "IpRecord",
+    "Level2Record",
+    "PROBE_HOST",
+    "PROBE_PORT",
+    "PROBE_TARGET",
+    "Protocol",
+    "ProviderIp",
+    "batch_test",
+    "build_proxy_url",
+    "err",
+    "load_settings",
+    "load_yaml",
+    "ok",
+    "proxy_reachability_test",
+    "run_app",
+    "setup_logging",
+    "site_test",
+]
+
+__version__ = "0.1.0"

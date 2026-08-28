@@ -26,8 +26,8 @@ def load_yaml(path: str) -> dict[str, Any]:
 
 def load_settings(
     settings_cls: type[BaseSettings],
-    path: str,
-    env_prefix: str,
+    path: str | None = None,
+    env_prefix: str = "",
 ) -> BaseSettings:
     """YAML 为基底，环境变量（env_prefix 前缀）可覆盖，实例化为 pydantic-settings 对象。
 
@@ -35,8 +35,11 @@ def load_settings(
     环境变量 `LEVEL1_SERVICE__PORT=8080` 覆盖 `service.port`。
     缺省字段用类默认值填充，缺失必填项会抛出校验异常。
     """
-    data = load_yaml(path)
-    _deep_merge(data, _read_env_overrides(env_prefix))
+    data: dict[str, Any] = {}
+    if path is not None:
+        data = load_yaml(path)
+    if env_prefix:
+        _deep_merge(data, _read_env_overrides(env_prefix))
     return settings_cls(**data)
 
 
