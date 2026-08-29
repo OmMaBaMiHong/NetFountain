@@ -6,15 +6,15 @@ service:
 registry:
   route_file: config/proxy_routes.yaml
   route_url: ""
-  reload_interval: 60.0
+  reload_interval: 30.0
 
 dispatch:
   timeout: 10.0
 
 sites:
-  - name: site_a
+  - name: baidu
     base_url: http://127.0.0.1:8001
-    target_url: https://www.example.com
-  - name: site_b
+    target_url: https://www.baidu.com
+  - name: gongshang
     base_url: http://127.0.0.1:8002
-    target_url: https://www.example.org
+    target_url: https://gongshang.mingluji.com
