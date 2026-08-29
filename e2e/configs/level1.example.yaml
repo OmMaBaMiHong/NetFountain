@@ -1,0 +1,23 @@
+service:
+  host: 0.0.0.0
+  port: 8000
+  log_level: INFO
+
+provider:
+  type: http91
+  api_url: http://api.91http.com/v1/get-ip
+  api_key: <你的密钥>
+  trade_no: <你的业务编号>
+  protocol: 1
+  pull_count: 10
+  pull_interval: 1.0
+  pull_timeout: 5.0
+  supports_ttl: true
+
+pool:
+  max_size: 500
+
+test_timeout: 3.0
+test_concurrency: 10
+
+ttl_sweep_interval: 5.0

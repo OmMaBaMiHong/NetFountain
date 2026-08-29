@@ -127,7 +127,7 @@ ttl_sweep_interval: 5.0    # TTL 过期清理周期（秒）
 
 要点：
 
-- **凭据警告**：仓库中该文件含真实 91HTTP `api_key` / `trade_no`，属敏感信息。部署时应替换为你自己的凭据，并确保不入库、不泄露。
+- **凭据入库**：`level1_pool/config/level1_pool.yaml` 属运行期本地文件（已 gitignore），请从模板 `config/level1_pool.example.yaml` 复制并替换 `api_key` / `trade_no` 为**你自己的** 91HTTP 凭据，确保不入库、不泄露。
 - `provider.type` 当前支持两种：
   - `http91`：适配 91HTTP `/v1/get-ip` JSON 接口（携带 `expire_time` 折算 TTL）。
   - `default_http`：通用 HTTP 供应商，GET `api_url`（携带 `api_key`），解析 `{data:[{ip,port,protocol,region,ttl}]}` 格式，用于自建/联调供应商。

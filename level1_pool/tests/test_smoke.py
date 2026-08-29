@@ -3,7 +3,7 @@ from app.config import Level1Settings, load_level1_settings
 
 
 def test_config_import_and_load():
-    settings = load_level1_settings("config/level1_pool.yaml")
+    settings = load_level1_settings("config/level1_pool.example.yaml")
     assert isinstance(settings, Level1Settings)
     assert settings.service.port == 8000
     assert settings.provider.pull_count == 10

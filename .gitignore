@@ -8,5 +8,7 @@ __pycache__/
 *.egg-info/
 e2e/logs/
 e2e/.pytest_cache/
-# e2e 编排器运行期写入的 level2 配置产物
+# 运行期真实配置文件（凭据不入库，使用 *.example.yaml 模板复制）
+level1_pool/config/level1_pool.yaml
 level2_pool/config/level2_pool.yaml
+e2e/configs/level1.yaml
