@@ -31,6 +31,18 @@ class DispatchConfig(BaseModel):
     timeout: float = 10.0
 
 
+class AuthConfig(BaseModel):
+    """账号认证：接口调用方凭据 → 定向二级池。
+
+    - 带 Basic 凭据：校验通过后强制使用账号绑定的池（``accounts`` 表）；
+    - 无凭据：只允许访问默认池（``default_site``，空 = 路由表第一个站点）；
+    - 凭据错误回 401，访问了非本人/非默认池回 403。
+    """
+
+    default_site: str = ""  # 无凭据调用方走的默认池；空 = 路由表第一个站点
+    db_path: str = ""  # 账号 SQLite 路径；空 = <proxy>/data/accounts.db
+
+
 class ProxySettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="PROXY_", extra="ignore")
 
@@ -38,6 +50,7 @@ class ProxySettings(BaseSettings):
     registry: RegistryConfig = RegistryConfig()
     level1: Level1Config = Level1Config()
     dispatch: DispatchConfig = DispatchConfig()
+    auth: AuthConfig = AuthConfig()
 
 
 def load_proxy_settings(path: str | None = None) -> ProxySettings:

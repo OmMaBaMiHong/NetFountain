@@ -94,7 +94,7 @@ async def test_hot_reload_adds_site(mock_level2, running_app, tmp_path):
             assert r.json()["data"][0]["site"] == name_b
 
 
-# PX-INT-003 多站点并发访问互不串扰
+# PX-INT-003 多站点并发访问互不串扰（按账号定向：两账号各绑一池，凭据互串即 403）
 async def test_multi_site_concurrent_no_crosstalk(mock_level2, running_app, tmp_path):
     async with mock_level2("site_a", "site_b") as servers:
         (name_a, state_a, url_a), (name_b, state_b, url_b) = servers
@@ -107,8 +107,18 @@ async def test_multi_site_concurrent_no_crosstalk(mock_level2, running_app, tmp_
         await reg.load()
         app = _proxy_app(reg)
         async with running_app(app) as client:
+            creds = {name_a: ("acct_a", "pw_a"), name_b: ("acct_b", "pw_b")}
+            for name, (username, password) in creds.items():
+                r = await client.post(
+                    "/api/v1/accounts",
+                    json={"username": username, "password": password,
+                          "assigned_site": name},
+                )
+                assert r.json()["code"] == 0
+
             async def acquire(name: str):
-                r = await client.post(f"/api/v1/{name}/ips/acquire")
+                r = await client.post(f"/api/v1/{name}/ips/acquire",
+                                      auth=creds[name])
                 return r.json()["data"]["site"]
 
             results = await asyncio.gather(

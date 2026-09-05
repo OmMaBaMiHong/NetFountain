@@ -45,8 +45,31 @@
 | `common` | 公共库 `ip_pool_common`：数据模型、代理测试原语、配置加载、日志、API 通用件。被三项目依赖，不依赖任何业务项目。 | — |
 | `level1_pool` | 一级池：从多个供应商（91HTTP / freeproxy / default_http，一个配置文件 `global`+`providers` 多供应商配置）拉取 IP、代理可达性测试（每供应商独立拉取器与测试管线，拉取与测试解耦多 worker）、按 `proxy_url` 去重入共享环形池、TTL/容量淘汰、对外查询 API。 | 8000 |
 | `level2_pool` | 二级池：从一级池增量同步、站点连通测试（延迟 < 2000ms 才入池）、租赁分配（提取策略：最新/随机/延迟升序/剩余时间降序，可筛选延迟与剩余时间，支持批量提取）/释放/删除、周期复验。一个配置文件 `global`+`pools` 自动多开（单进程多线程），子池配置覆盖全局。 | 8001+ |
-| `proxy` | 代理层：按站点标识路由到对应二级池并纯透传请求/响应，每分钟热更新路由表。 | 9000 |
+| `proxy` | 代理层：按站点标识路由到对应二级池并纯透传请求/响应，每分钟热更新路由表；支持账号定向池（凭据决定下游从哪个二级池租 IP）。 | 9000 |
 | `frontend` | Web 面板 + 数据聚合后端 BFF（Vue3 + Express5 + node:sqlite）：只经 HTTP 定时聚合三服务数据并提供可视化。 | 3000/5173 |
+
+## 账号定向池（接口调用方身份识别）
+
+代理层支持给下游服务分配账号：凭据决定它从哪个二级池租 IP，没注册的一律走默认池。
+
+- **注册**：`POST /api/v1/accounts`，body `{"username":"sub2api","password":"***","assigned_site":"zhihu"}`；
+  列表 `GET /api/v1/accounts`；删除 `DELETE /api/v1/accounts/{username}`（管理接口仅限内网）；
+- **带凭据调用**：租还类接口（acquire / acquire-batch / release / delete / release-all）带
+  `Authorization: Basic <user:pass>`（即 `curl -u user:pass`），校验通过后强制走该账号绑定的池，
+  请求其它池回 403；凭据错误回 401；
+- **无凭据调用**：只允许访问默认池（`proxy_routes.yaml` 的 `auth.default_site`，空 = 路由表第一个站点）；
+- **只读接口**（status / count / ips / health）不鉴权，前端面板不受影响；
+- 账号库：`proxy/data/accounts.db`（SQLite，密码加盐哈希存储，不入 git）。
+
+```bash
+# 注册：把 sub2api 绑定到 zhihu 池
+curl -X POST http://127.0.0.1:9000/api/v1/accounts \
+     -H 'Content-Type: application/json' \
+     -d '{"username":"sub2api","password":"s3cret","assigned_site":"zhihu"}'
+
+# 带凭据租 IP（强制走 zhihu 池）
+curl -u sub2api:s3cret -X POST http://127.0.0.1:9000/api/v1/zhihu/ips/acquire
+```
 
 ## 服务安装与启动
 

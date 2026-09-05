@@ -247,3 +247,14 @@ def mock_level2():
                         await task
 
     return _start
+# ---------------------------------------------------------------------------
+# 账号库隔离：所有用例的账号库指到临时目录，测试不读写仓库 proxy/data/accounts.db
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def _tmp_accounts_db(tmp_path, monkeypatch):
+    import app.accounts as accounts_module
+
+    monkeypatch.setattr(accounts_module, "_DEFAULT_DB",
+                        str(tmp_path / "accounts.db"))

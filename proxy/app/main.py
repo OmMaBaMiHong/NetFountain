@@ -19,10 +19,12 @@ from fastapi import FastAPI
 from ip_pool_common.api import BizCodeLogMiddleware
 from ip_pool_common.logging_setup import setup_logging
 
+from .accounts import AccountStore
 from .config import ProxySettings, load_proxy_settings
 from .dispatcher import Dispatcher
 from .registry import Registry
 from .routes import router
+from .routes_accounts import router as accounts_router
 from .stats import ProxyStats
 
 logger = logging.getLogger(__name__)
@@ -119,9 +121,12 @@ def create_app(
     app.state.start_time = (
         app.state.stats.start_time if start_time is None else start_time
     )
+    # 账号库（接口凭据 → 定向池）；按 db_path 建表/打开，目录不存在自动创建
+    app.state.accounts = AccountStore(settings.auth.db_path or None)
     app.add_middleware(ProxyStatsMiddleware)
     app.add_middleware(BizCodeLogMiddleware)
     app.include_router(router)
+    app.include_router(accounts_router)
     return app
 
 

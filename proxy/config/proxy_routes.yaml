@@ -15,6 +15,10 @@ level1:
 dispatch:
   timeout: 10.0
 
+auth:
+  # 无凭据调用方允许访问的默认池；空 = 路由表第一个站点
+  default_site: general
+
 sites:
   - name: zhihu
     base_url: http://127.0.0.1:8001

@@ -441,7 +441,13 @@ POST /api/v1/ips/acquire-batch?count=5&strategy=latency_asc&max_latency_ms=300
 
 ## 4. 代理层 API（proxy, :9000）
 
-代理层共 9 个接口，除 `/api/v1/health` 外均为透传接口（`{site}` 为路由表中的站点标识）。透传接口的响应与上游二级池一致，见上文各对应接口。
+代理层共 12 个接口：9 个透传/健康检查 + 3 个账号管理（见 4.10）。除 `/api/v1/health` 外透传接口（`{site}` 为路由表中的站点标识）响应与上游二级池一致，见上文各对应接口。
+
+**调用方鉴权**（仅约束 4.5 ~ 4.9 租还类接口；status/count/ips/health 等只读接口开放）：
+
+- 带 `Authorization: Basic <user:pass>`：校验通过后**强制使用该账号绑定的池**，请求的 `{site}` 与绑定池不符回 **403**（`code=40300`）；用户名不存在或密码错误回 **401**（`code=40101`）；
+- 不带凭据：只允许访问默认池（`proxy_routes.yaml` 的 `auth.default_site`，空 = 路由表第一个站点），访问其它池回 **403**（`code=40300`）并提示注册；
+- 站点不在路由表：照旧回 **404**（`code=40400`），鉴权不改变该契约。
 
 ### 4.1 GET /api/v1/health
 
@@ -554,6 +560,42 @@ POST /api/v1/ips/acquire-batch?count=5&strategy=latency_asc&max_latency_ms=300
 ### 4.9 POST /api/v1/{site}/ips/release-all
 
 透传 → 上游二级池 `POST /api/v1/ips/release-all`。请求体可选原始 JSON，原样转发；成功返回释放数量 `data: <int>`。
+
+### 4.10 账号管理与调用方鉴权（proxy, :9000）
+
+给下游服务分配账号，凭据决定它从哪个二级池拿 IP（账号定向池）。账号存于 `proxy/data/accounts.db`（SQLite，密码加盐哈希，不入 git）；管理接口仅限内网使用，不设管理鉴权。
+
+#### POST /api/v1/accounts — 注册账号
+
+**请求体**：
+
+| 字段 | 类型 | 必填 | 说明 |
+|---|---|---|---|
+| `username` | str | 是 | 用户名（唯一） |
+| `password` | str | 是 | 密码（服务端加盐哈希存储） |
+| `assigned_site` | str | 是 | 绑定的二级池站点名（必须在路由表中，否则 40400） |
+
+**响应 `data`**：`{username, assigned_site, created_at}`。重复注册回 400（`code=40000`）。
+
+```bash
+curl -X POST http://127.0.0.1:9000/api/v1/accounts \
+     -H 'Content-Type: application/json' \
+     -d '{"username":"sub2api","password":"s3cret","assigned_site":"zhihu"}'
+```
+
+#### GET /api/v1/accounts — 账号列表
+
+**响应 `data`**：`{accounts: [{username, assigned_site, created_at}], total}`（不含任何密码材料）。
+
+#### DELETE /api/v1/accounts/{username} — 删除账号
+
+**响应 `data`**：`{username, deleted: true}`；不存在回 404（`code=40400`）。删除后该账号凭据立即失效（401）。
+
+#### 调用示例：带凭据租 IP（强制走 zhihu 池）
+
+```bash
+curl -u sub2api:s3cret -X POST http://127.0.0.1:9000/api/v1/zhihu/ips/acquire
+```
 
 ---
 
