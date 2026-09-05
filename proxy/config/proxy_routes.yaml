@@ -19,6 +19,15 @@ auth:
   # 无凭据调用方允许访问的默认池；空 = 路由表第一个站点
   default_site: general
 
+tunnel:
+  # 隧道代理入口（标准正向代理，一个端口+凭据）：下游填 http://user:pass@host:9001
+  # 即可整池使用；凭据查 accounts 账号表定池，无凭据走默认池，凭据错回 407
+  enabled: true
+  port: 9001
+  max_attempts: 4
+  connect_timeout: 10.0
+  acquire_max_wait: 30.0
+
 sites:
   - name: zhihu
     base_url: http://127.0.0.1:8001

@@ -71,6 +71,32 @@ curl -X POST http://127.0.0.1:9000/api/v1/accounts \
 curl -u sub2api:s3cret -X POST http://127.0.0.1:9000/api/v1/zhihu/ips/acquire
 ```
 
+## 隧道代理入口（一个端口 + 凭据，对齐行业惯例）
+
+代理层可开启标准隧道代理入口（`proxy/config/proxy_routes.yaml` 的 `tunnel` 段，默认关闭）：下游把 `http://user:pass@代理层主机:9001` 填进自己的代理配置，即可使用整个池——HTTP 自动转发、HTTPS 走 CONNECT 隧道（支持流式），每个请求自动从池里取出口 IP，坏 IP 自动换（`max_attempts`），用完归还。
+
+- **凭据定池**：凭据就是 `accounts` 账号表的账号（与 9000 的账号定向池同一套）；无凭据走默认池（`auth.default_site`）；凭据缺失/错误回 **407**；
+- **独立端口**：默认 9001，与 9000 管理 API 互不干扰，不做协议分拣、没有内部端口，uvicorn 启动方式不变；
+- **池空等待**：按 `acquire_max_wait` 秒轮询等待，超时回 502。
+
+```yaml
+# proxy/config/proxy_routes.yaml
+tunnel:
+  enabled: true
+  port: 9001          # 独立代理入口端口
+  max_attempts: 4     # 单请求最多换几个出口 IP
+  connect_timeout: 10.0
+  acquire_max_wait: 30.0
+```
+
+```bash
+# 经隧道入口请求（走 u1 绑定的池，凭据错误回 407）
+curl -x http://u1:pw@127.0.0.1:9001 http://www.baidu.com -i
+# HTTPS 走 CONNECT 隧道
+curl -x http://u1:pw@127.0.0.1:9001 https://www.zhihu.com -I
+```
+
+
 ## 服务安装与启动
 
 各项目先安装依赖（公共库以 editable 方式引用），再以 uvicorn 启动。

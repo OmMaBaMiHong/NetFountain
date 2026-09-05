@@ -26,6 +26,7 @@ from .registry import Registry
 from .routes import router
 from .routes_accounts import router as accounts_router
 from .stats import ProxyStats
+from .tunnel import TunnelServer
 
 logger = logging.getLogger(__name__)
 
@@ -72,12 +73,16 @@ def create_app(
 
     setup_logging("proxy", level=settings.service.log_level)
 
+    # 账号库（接口凭据 / 隧道凭据共用）：按 db_path 建表/打开，目录自动创建
+    accounts_store = AccountStore(settings.auth.db_path or None)
+
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         own_session = session is None
         active_session = session if session is not None else aiohttp.ClientSession()
         active_registry: Registry | None = None
         reload_task = None
+        tunnel_server: TunnelServer | None = None
         try:
             route_file = settings.registry.route_file or None
             if route_file and not os.path.isabs(route_file) and os.path.exists(_CONFIG_PATH):
@@ -102,6 +107,14 @@ def create_app(
             app.state.settings = settings
             app.state.registry = active_registry
             app.state.dispatcher = dispatcher
+            # 隧道代理入口（tunnel.enabled 控制）：独立端口只讲代理协议，
+            # 凭据查同一张账号表定池；启动失败（端口被占/路由表空）即服务启动失败
+            if settings.tunnel.enabled:
+                tunnel_server = TunnelServer(
+                    active_registry, active_session, accounts_store, settings
+                )
+                await tunnel_server.start()
+            app.state.tunnel = tunnel_server
             yield
         finally:
             if reload_task is not None:
@@ -110,6 +123,8 @@ def create_app(
                     await reload_task
                 except (asyncio.CancelledError, Exception):
                     pass
+            if tunnel_server is not None:
+                await tunnel_server.close()  # 排空在途连接（归还 IP）再放行
             if active_registry is not None:
                 await active_registry.close()
             if own_session:
@@ -121,8 +136,7 @@ def create_app(
     app.state.start_time = (
         app.state.stats.start_time if start_time is None else start_time
     )
-    # 账号库（接口凭据 → 定向池）；按 db_path 建表/打开，目录不存在自动创建
-    app.state.accounts = AccountStore(settings.auth.db_path or None)
+    app.state.accounts = accounts_store
     app.add_middleware(ProxyStatsMiddleware)
     app.add_middleware(BizCodeLogMiddleware)
     app.include_router(router)

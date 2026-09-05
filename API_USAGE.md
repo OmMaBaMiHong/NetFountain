@@ -597,6 +597,35 @@ curl -X POST http://127.0.0.1:9000/api/v1/accounts \
 curl -u sub2api:s3cret -X POST http://127.0.0.1:9000/api/v1/zhihu/ips/acquire
 ```
 
+### 4.11 隧道代理入口（tunnel, :9001）
+
+标准正向代理入口（`proxy_routes.yaml` 的 `tunnel` 段，`enabled: true` 开启，默认关闭）：下游把 `http://user:pass@代理层主机:9001` 填进代理配置即可整池使用。端口独立于 9000，只讲代理协议。
+
+**行为**：
+
+- HTTP 绝对 URI 请求经池内出口 IP 转发；HTTPS 走 CONNECT 隧道（建联后双向透传，支持流式）；
+- 凭据：`Proxy-Authorization: Basic user:pass`，查 `accounts` 表定池（与 4.10 同一套账号）；无凭据走默认池（`auth.default_site`）；凭据缺失/格式非法/密码错误回 **407**（响应带 `Proxy-Authenticate: Basic`）；
+- 每个请求（CONNECT 为每条连接）从绑定池 acquire 一个出口 IP，失败自动换下一个（最多 `max_attempts` 次），用完 release 归还；
+- 池空按 `acquire_interval` 轮询等待，超过 `acquire_max_wait` 秒回 **502**（`{"error":"pool empty"}`）；重试耗尽回 502（`{"error":"all upstream proxies failed"}`）。
+
+**配置**：
+
+| 字段 | 默认 | 说明 |
+|---|---|---|
+| `enabled` | false | 是否开启隧道入口 |
+| `host` | 随 service.host | 监听地址 |
+| `port` | 9001 | 代理入口端口 |
+| `max_attempts` | 4 | 单请求最多换几个出口 IP |
+| `connect_timeout` | 10.0 | 连上游出口 IP 超时秒数 |
+| `upstream_timeout` | 15.0 | 上游 CONNECT 响应/二级池接口超时秒数 |
+| `acquire_max_wait` | 30.0 | 池空最长等待秒数 |
+| `acquire_interval` | 2.0 | 池空轮询间隔秒数 |
+
+```bash
+curl -x http://u1:pw@127.0.0.1:9001 http://www.baidu.com -i
+curl -x http://u1:pw@127.0.0.1:9001 https://www.zhihu.com -I
+```
+
 ---
 
 ## 5. 接口速查表

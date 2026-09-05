@@ -43,6 +43,27 @@ class AuthConfig(BaseModel):
     db_path: str = ""  # 账号 SQLite 路径；空 = <proxy>/data/accounts.db
 
 
+class TunnelConfig(BaseModel):
+    """隧道代理入口（标准正向代理，一个端口 + 凭据，对齐行业惯例）。
+
+    - 下游填 ``http://user:pass@host:port`` 即可使用整个池：
+      HTTP 绝对 URI 转发、HTTPS 走 CONNECT 隧道（支持流式）；
+    - 凭据查 ``accounts`` 表定池（与接口鉴权同一套账号）；
+      无凭据走默认池（auth.default_site）；凭据非法回 407；
+    - 每请求 acquire 一个出口 IP，坏 IP 自动换（max_attempts），用完 release；
+      池空轮询等待 acquire_max_wait 秒后回 502。
+    """
+
+    enabled: bool = False
+    host: str | None = None  # None → 随 service.host
+    port: int = 9001  # 独立代理入口端口，与 9000 管理 API 互不干扰
+    max_attempts: int = 4  # 单请求最多换几个出口 IP
+    connect_timeout: float = 10.0  # 连上游出口 IP 的超时秒数
+    upstream_timeout: float = 15.0  # 上游 CONNECT 响应/二级池接口超时秒数
+    acquire_max_wait: float = 30.0  # 池空时最长等待秒数，超时回 502
+    acquire_interval: float = 2.0  # 池空轮询间隔秒数
+
+
 class ProxySettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="PROXY_", extra="ignore")
 
@@ -51,6 +72,7 @@ class ProxySettings(BaseSettings):
     level1: Level1Config = Level1Config()
     dispatch: DispatchConfig = DispatchConfig()
     auth: AuthConfig = AuthConfig()
+    tunnel: TunnelConfig = TunnelConfig()
 
 
 def load_proxy_settings(path: str | None = None) -> ProxySettings:
