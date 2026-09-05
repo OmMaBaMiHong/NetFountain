@@ -98,6 +98,37 @@ def register(name: str):
     return _deco
 
 
+@register("txt_lines")
+class TxtLinesProvider(BaseProvider):
+    """TXT 行式免费源：GET api_url，每行 `ip:port`，全部视为 HTTP 代理。
+
+    上游示例：TheSpeedX/PROXY-List http.txt（jsdelivr CDN 直连可达，持续更新）。
+    该类源无 TTL/地域信息，由测试管线验证可用性。
+    """
+
+    async def pull(self, count: int) -> list[ProviderIp]:
+        timeout = aiohttp.ClientTimeout(total=self.cfg.pull_timeout)
+        try:
+            async with self.session.get(self.cfg.api_url, timeout=timeout) as resp:
+                resp.raise_for_status()
+                text = await resp.text()
+        except (aiohttp.ClientError, asyncio.TimeoutError, OSError) as exc:
+            logger.warning("pull from %r failed: %s", self.cfg.api_url, exc)
+            raise
+        out: list[ProviderIp] = []
+        for line in text.splitlines():
+            line = line.strip()
+            if ":" not in line:
+                continue
+            ip, _, port = line.rpartition(":")
+            if not ip or not port.isdigit():
+                continue
+            out.append(ProviderIp(ip=ip, port=int(port), protocol=Protocol.HTTP))
+            if len(out) >= count:
+                break
+        return out
+
+
 @register("default_http")
 class DefaultHttpProvider(BaseProvider):
     """默认 HTTP 供应商：GET api_url（带 api_key），解析统一响应格式。"""
