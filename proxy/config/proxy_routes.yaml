@@ -1,3 +1,20 @@
+service:
+  host: 0.0.0.0
+  port: 9000
+  log_level: INFO
+
+registry:
+  route_file: config/proxy_routes.yaml
+  route_url: ""
+  reload_interval: 30.0
+
+level1:
+  base_url: http://127.0.0.1:8000
+  timeout: 5.0
+
+dispatch:
+  timeout: 10.0
+
 sites:
   - name: zhihu
     base_url: http://127.0.0.1:8001
@@ -5,13 +22,3 @@ sites:
   - name: general
     base_url: http://127.0.0.1:8002
     target_url: http://www.baidu.com
-
-# 内置正向代理（单端口网关模式）：对外只有 9000 一个端口，
-# 代理请求与 /api/v1 管理 API 同端口自动分拣；须用 `python -m app.gateway` 启动
-forward_proxy:
-  enabled: true
-  port: 9000
-  internal_port: 19000
-  max_attempts: 4
-  connect_timeout: 10.0
-  acquire_max_wait: 30.0

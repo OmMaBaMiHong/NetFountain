@@ -21,7 +21,6 @@ from ip_pool_common.logging_setup import setup_logging
 
 from .config import ProxySettings, load_proxy_settings
 from .dispatcher import Dispatcher
-from .forward_proxy import ForwardProxyServer
 from .registry import Registry
 from .routes import router
 from .stats import ProxyStats
@@ -61,12 +60,8 @@ def create_app(
     start_reload: bool = True,
     stats: ProxyStats | None = None,
     start_time: float | None = None,
-    start_forward_proxy: bool = True,
 ) -> FastAPI:
-    """装配 FastAPI 应用；组件可注入，未注入的在 lifespan 内按配置创建。
-
-    ``start_forward_proxy=False`` 用于网关模式：9000 由 gateway 持有，lifespan 不再绑定。
-    """
+    """装配 FastAPI 应用；组件可注入，未注入的在 lifespan 内按配置创建。"""
     if settings is None:
         if os.path.exists(_CONFIG_PATH):
             settings = load_proxy_settings(_CONFIG_PATH)
@@ -81,7 +76,6 @@ def create_app(
         active_session = session if session is not None else aiohttp.ClientSession()
         active_registry: Registry | None = None
         reload_task = None
-        forward_proxy: ForwardProxyServer | None = None
         try:
             route_file = settings.registry.route_file or None
             if route_file and not os.path.isabs(route_file) and os.path.exists(_CONFIG_PATH):
@@ -106,13 +100,6 @@ def create_app(
             app.state.settings = settings
             app.state.registry = active_registry
             app.state.dispatcher = dispatcher
-            # 内置正向代理：把站点二级池的租赁 IP 暴露为标准正向代理端口
-            if settings.forward_proxy.enabled and start_forward_proxy:
-                forward_proxy = ForwardProxyServer(
-                    active_registry, active_session, settings
-                )
-                await forward_proxy.start()
-            app.state.forward_proxy = forward_proxy
             yield
         finally:
             if reload_task is not None:
@@ -121,8 +108,6 @@ def create_app(
                     await reload_task
                 except (asyncio.CancelledError, Exception):
                     pass
-            if forward_proxy is not None:
-                await forward_proxy.close()
             if active_registry is not None:
                 await active_registry.close()
             if own_session:
