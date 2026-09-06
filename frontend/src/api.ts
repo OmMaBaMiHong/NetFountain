@@ -1,4 +1,5 @@
 import type {
+  AccountsResponse,
   Distributions,
   HistoryResponse,
   IpPage,
@@ -49,6 +50,33 @@ async function request<T>(
   return body.data
 }
 
+async function requestJson<T>(
+  path: string,
+  method: 'POST' | 'DELETE',
+  body?: unknown,
+): Promise<T> {
+  let res: Response
+  try {
+    res = await fetch(`/api${path}`, {
+      method,
+      headers: body ? { 'Content-Type': 'application/json' } : undefined,
+      body: body ? JSON.stringify(body) : undefined,
+    })
+  } catch {
+    throw new ApiError('无法连接后端服务')
+  }
+  let env: ApiEnvelope<T>
+  try {
+    env = (await res.json()) as ApiEnvelope<T>
+  } catch {
+    throw new ApiError('后端响应解析失败')
+  }
+  if (!env || env.code !== 0) {
+    throw new ApiError(env?.msg || '接口返回错误')
+  }
+  return env.data
+}
+
 export const api = {
   overview: () => request<Overview>('/overview'),
   distributions: () => request<Distributions>('/distributions'),
@@ -64,4 +92,16 @@ export const api = {
     size?: number
   }) => request<IpPage>('/ips', p),
   history: (range: string) => request<HistoryResponse>('/history', { range }),
+  accounts: () => request<AccountsResponse>('/accounts'),
+  createAccount: (p: { username: string; password: string; assigned_site: string }) =>
+    requestJson<{ username: string; assigned_site: string; created_at: string }>(
+      '/accounts',
+      'POST',
+      p,
+    ),
+  deleteAccount: (username: string) =>
+    requestJson<{ username: string; deleted: boolean }>(
+      `/accounts/${encodeURIComponent(username)}`,
+      'DELETE',
+    ),
 }

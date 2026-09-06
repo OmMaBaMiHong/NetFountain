@@ -134,3 +134,16 @@ export interface Stats {
   } | null
   updated_at: number
 }
+
+// ---- 账号管理 ----
+
+export interface AccountInfo {
+  username: string
+  assigned_site: string
+  created_at: string
+}
+
+export interface AccountsResponse {
+  accounts: AccountInfo[]
+  total: number
+}

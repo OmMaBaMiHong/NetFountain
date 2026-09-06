@@ -372,6 +372,61 @@ app.post('/api/sites/:site/release-all', async (req, res) => {
   }
 })
 
+// ---- 账号管理：代理 CRUD 到代理层 /api/v1/accounts ----
+
+async function proxyAccountRequest(method, path, body) {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 5000)
+  try {
+    const r = await fetch(`${config.proxyUrl}/api/v1${path}`, {
+      method,
+      headers: body ? { 'Content-Type': 'application/json' } : undefined,
+      body: body ? JSON.stringify(body) : undefined,
+      signal: controller.signal,
+    })
+    let payload
+    try {
+      payload = await r.json()
+    } catch {
+      payload = err(50200, `invalid upstream response: HTTP ${r.status}`)
+    }
+    return { status: r.status, payload }
+  } catch (e) {
+    return {
+      status: 502,
+      payload: err(50200, `proxy service unreachable: ${e && e.message ? e.message : e}`),
+    }
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+app.get('/api/accounts', async (req, res) => {
+  const { status, payload } = await proxyAccountRequest('GET', '/accounts')
+  res.status(status).json(payload)
+})
+
+app.post('/api/accounts', async (req, res) => {
+  const { username, password, assigned_site } = req.body || {}
+  if (!username || !password || !assigned_site) {
+    return res.json(err(40000, 'username/password/assigned_site are all required'))
+  }
+  const { status, payload } = await proxyAccountRequest('POST', '/accounts', {
+    username: String(username),
+    password: String(password),
+    assigned_site: String(assigned_site),
+  })
+  res.status(status).json(payload)
+})
+
+app.delete('/api/accounts/:username', async (req, res) => {
+  const { status, payload } = await proxyAccountRequest(
+    'DELETE',
+    `/accounts/${encodeURIComponent(req.params.username)}`,
+  )
+  res.status(status).json(payload)
+})
+
 // /api/history 结果缓存：queryHistory 为全量窗口聚合（同步、可达秒级），
 // 图表页每个刷新 tick 都会请求，按 range 缓存 Promise（防并发击穿），
 // TTL 内直接复用，避免重算反复阻塞事件循环导致其他接口排队超时

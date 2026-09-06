@@ -7,5 +7,6 @@ export const router = createRouter({
     { path: '/ips', name: 'ips', component: () => import('./views/Ips.vue') },
     { path: '/sites', name: 'sites', component: () => import('./views/Sites.vue') },
     { path: '/stats', name: 'stats', component: () => import('./views/Stats.vue') },
+    { path: '/accounts', name: 'accounts', component: () => import('./views/Accounts.vue') },
   ],
 })

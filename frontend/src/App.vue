@@ -16,6 +16,7 @@ const titles: Record<string, string> = {
   '/ips': 'IP 列表',
   '/sites': '站点视图',
   '/stats': '统计分析',
+  '/accounts': '账号管理',
 }
 const title = computed(() => titles[route.path] || 'NetFountain')
 
@@ -39,6 +40,7 @@ onBeforeUnmount(() => dataStore.stop())
         <el-menu-item index="/ips">IP 列表</el-menu-item>
         <el-menu-item index="/sites">站点视图</el-menu-item>
         <el-menu-item index="/stats">统计分析</el-menu-item>
+        <el-menu-item index="/accounts">账号管理</el-menu-item>
       </el-menu>
     </el-aside>
     <el-container>
